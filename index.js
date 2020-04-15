@@ -6,10 +6,6 @@
 var express = require('express');
 var app = express();
 
-// socket.io
-var http = require('http').Server(app);
-var io = require('socket.io')(http);
-
 // lodash
 var lodash = require('lodash');
 
@@ -159,7 +155,8 @@ function validateState(state) {
 }
 
 function validateVideoId(videoId) {
-  return typeof videoId === 'number' && videoId % 1 === 0 && videoId >= 0;
+  //return typeof videoId === 'number' && videoId % 1 === 0 && videoId >= 0;
+  return true;
 }
 
 function validateMessageBody(body) {
@@ -173,6 +170,16 @@ function padIntegerWithZeros(x, minWidth) {
   }
   return numStr;
 }
+
+
+// START
+var server = app.listen(process.env.PORT || 3000, function() {
+  console.log('Listening on port %d.', server.address().port);
+});
+
+// socket.io
+var io = require('socket.io')(server);
+
 
 io.on('connection', function(socket) {
   var userId = makeId();
@@ -646,8 +653,4 @@ io.on('connection', function(socket) {
     delete users[userId];
     console.log('User ' + userId + ' disconnected.');
   });
-});
-
-var server = http.listen(process.env.PORT || 3000, function() {
-  console.log('Listening on port %d.', server.address().port);
 });

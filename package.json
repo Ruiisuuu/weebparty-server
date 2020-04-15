@@ -1,7 +1,7 @@
 {
-  "name": "netflixparty",
+  "name": "weebparty",
   "version": "1.0.0",
-  "description": "A tool for synchronized Netflix consumption.",
+  "description": "A tool for synchronized Anime stream consumption.",
   "main": "index.js",
   "scripts": {
     "start": "./node_modules/.bin/forever index.js"
@@ -20,6 +20,6 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/boyers/netflixparty.git"
+    "url": "https://github.com/ruiisuuu/weebparty-server.git"
   }
 }
