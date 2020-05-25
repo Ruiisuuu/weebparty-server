@@ -1,46 +1,37 @@
 //////////////////////////////////////////////////////////////////////////
-// Configuration                                                        //
-//////////////////////////////////////////////////////////////////////////
-const app = require('express')();
-const helmet = require('helmet')
-app.use(helmet());
-app.get('/', function(req, res) {
-  res.setHeader('Content-Type', 'text/plain');
-  res.send('OK');
-});
-const server = require('http').Server(app);
-const io = require('socket.io')(server);
-
-server.listen(process.env.PORT || 3000, function() {
-  console.log(`Listening on port ${server.address().port}`);
-});
-
-//////////////////////////////////////////////////////////////////////////
 // State                                                                //
 //////////////////////////////////////////////////////////////////////////
-
-// In-memory store of all the sessions
-// the keys are the session IDs (strings)
-// the values have the form: {
-//   id: 'cba82ca5f59a35e6',                                                                // 8 random octets
-//   lastKnownTime: 123,                                                                    // milliseconds from the start of the video
-//   lastKnownTimeUpdatedAt: new Date(),                                                    // when we last received a time update
-//   ownerId: '3d16d961f67e9792',                                                           // id of the session owner (if any)
-//   isPlaying: true | false,                                                               // whether the video is playing or paused
-//   userIds: ['3d16d961f67e9792', ...],                                                    // ids of the users in the session
-//   ////////videoLink: https://animepahe.com/play/...                                              // Default streaming website used by owner
-// }
-let sessions = {};
 
 // In-memory store of all the users
 // the keys are the user IDs (strings)
 // the values have the form: {
 //   id: '3d16d961f67e9792',        // 8 random octets
-//   sessionId: 'cba82ca5f59a35e6', // id of the session, if one is joined
 //   socket: <websocket>,           // the websocket
 //   discord: TODO
 // }
 let users = {};
+let leaderId = null;
+
+//////////////////////////////////////////////////////////////////////////
+// Configuration                                                        //
+//////////////////////////////////////////////////////////////////////////
+const app = require('express')();
+const helmet = require('helmet')
+app.use(helmet());
+
+app.get('/', function(req, res) {
+  res.setHeader('Content-Type', 'text/plain');
+  res.send('OK');
+});
+app.get('/leaderid', function(req, res) {
+  res.send(leaderId);
+});
+
+const server = require('http').Server(app);
+const io = require('socket.io')(server);
+server.listen(process.env.PORT || 3000, function() {
+  console.log(`Listening on port ${server.address().port}`);
+});
 
 //////////////////////////////////////////////////////////////////////////
 // Utility functions                                                    //
@@ -59,6 +50,14 @@ function validateId(id) {
   return typeof id === 'string' && id.length === 16;
 }
 
+function validateLastKnownTime(){
+  //TODO
+}
+
+function validateDate(){
+  //TODO
+}
+
 function validateBoolean(boolean) {
   return typeof boolean === 'boolean';
 }
@@ -70,154 +69,103 @@ function validateBoolean(boolean) {
 io.on('connection', function(socket) {
   const userId = makeId();
   while (users.hasOwnProperty(userId)) userId = makeId();
+
   users[userId] = {
     id: userId,
-    sessionId: null,
     socket: socket,
   };
   socket.emit('userId', userId);
   console.log(`User ${userId} connected.`);
 
-  socket.on('createSession', function(data,fn) {
-    // Leader needs to send data of the form : {
-    //   lastKnownTime: 123,                                                                    // milliseconds from the start of the video
-    //   lastKnownTimeUpdatedAt: new Date(),                                                    // when we last received a time update
-    //   isPlaying: true | false,                                                               // whether the video is playing or paused
-    //   /////videoLink: https://animepahe.com/play/...                                              // Default streaming website used by owner
-    // }
+  socket.on('becomeLeader', function() {
     if (!users.hasOwnProperty(userId)) {
-      fn({errorMessage: "Disconnected"});
-      console.log('The socket sent a message, but is now disconnected.');
+      socket.emit("displayError", 'Disconnected.');
+      console.log('A socket sent a message, but is now disconnected.');
       return;
     }
-    if (!validateLastKnownTime(data.lastKnownTime)) {
-      fn({ errorMessage: 'Invalid lastKnownTime.' });
-      console.log(`User ${userId} attempted to update session ${users[userId].sessionId} with invalid lastKnownTime ${JSON.stringify(data.lastKnownTime)}.`);
+    if (leaderId) {
+      socket.emit("displayError", 'There is already a leader.');
+      console.log(`User ${userId} attempted to become the leader when the leader is already ${leaderId}.`);
       return;
     }
-    if (!validateBoolean(data.isPlaying)) {
-      fn({ errorMessage: 'Invalid isPlaying.' });
-      console.log(`User ${userId} attempted to update session ${users[userId].sessionId} with invalid state ${JSON.stringify(data.state)}.`);
-      return;
-    }
-    const sessionId = makeId();
-    while (sessions.hasOwnProperty(sessionId)) sessionId = makeId();
-
-    socket.join(sessionId); // Join socket io room
-    const session = {
-      id: sessionId,
-      lastKnownTime: data.lastKnownTime,
-      lastKnownTimeUpdatedAt: new Date(),
-      ownerId: userId,
-      isPlaying: false,
-      userIds: [userId],
-    };
-    users[userId].sessionId = sessionId;
-    sessions[session.id] = session;
-    fn(sessionId); // Send back sessionId
-    console.log(`User ${userId} created session ${users[userId].sessionId}.`);
+    leaderId = userId;
+    console.log(`User ${userId} became the leader.`);
   });
 
-  socket.on('joinSession', function(sessionId, fn) {
+  socket.on('stopLeading', function() {
     if (!users.hasOwnProperty(userId)) {
-      fn({ errorMessage: 'Disconnected.' });
-      console.log('The socket sent a message, but is now disconnected.');
+      socket.emit("displayError", 'Disconnected.');
+      console.log('A socket sent a message, but is now disconnected.');
       return;
     }
-    if (!validateId(sessionId) || !sessions.hasOwnProperty(sessionId)) {
-      fn({ errorMessage: 'Invalid session ID.' });
-      console.log(`User ${userId} attempted to join nonexistent session ${JSON.stringify(sessionId)}.`);
-      return;
+    if (userId != leaderId) {
+      socket.emit("displayError", 'You are not the leader.');
+      console.log(`The socket ${userId} tried to stop leader, but was not the leader (=${leaderId}).`);
+    } else{
+      leaderId = null;
+      console.log(`The socket ${userId} stopped being the leader.`);
     }
-    if (users[userId].sessionId !== null) {
-      fn({ errorMessage: 'Already in a session.' });
-      console.log(`User ${userId} attempted to join session ${sessionId}, but the user is already in session ${users[userId].sessionId}.`);
-      return;
-    }
-    socket.join(sessionId); // Join socket io room
-    users[userId].sessionId = sessionId;
-    sessions[sessionId].userIds.push(userId);
-    // Ask the leader to update current video timestamp
-    users[sessions[sessionId].ownerId].emit('leadRequest');
-    console.log(`User ${userId} joined session ${sessionId}.`);
   });
 
-  // socket.on('leaveSession', function(_, fn) {
-  //   if (!users.hasOwnProperty(userId)) {
-  //     fn({ errorMessage: 'Disconnected.' });
-  //     console.log('The socket sent a message, but is now disconnected.');
-  //     return;
-  //   }
-  //   if (users[userId].sessionId === null) {
-  //     fn({ errorMessage: 'Not in a session.' });
-  //     console.log(`User ${userId} attempted to leave a session, but the user was not in one.`);
-  //     return;
-  //   }
-  //   leaveSession();
-  //   console.log(`User ${userId} left session ${sessionId}.`);
-  // });
-
-  socket.on('leaderUpdate', function(data, fn) {
-    // Leader needs to send data of the form : {
-    //   lastKnownTime: 123,                                                                    // milliseconds from the start of the video
-    //   lastKnownTimeUpdatedAt: new Date(),                                                    // when we last received a time update
-    //   isPlaying: true | false,                                                               // whether the video is playing or paused
-    // }
+  socket.on('stateUpdate', function(leaderIsPaused){
     if (!users.hasOwnProperty(userId)) {
-      fn({ errorMessage: 'Disconnected.' });
+      socket.emit("displayError", 'Disconnected.');
+      console.log('A socket sent a message, but is now disconnected.');
+      return;
+    }
+    if (!validateBoolean(leaderIsPaused)) {
+      socket.emit("displayError", 'Invalid leaderIsPaused.');
+      console.log(`User ${userId} attempted to update with invalid state ${JSON.stringify(leaderIsPaused)}.`);
+      return;
+    }
+    socket.broadcast.emit('stateUpdate', leaderIsPaused);
+  });
+
+  socket.on('leaderSeeked', (data) => { // Leader skips to a time
+    if (!users.hasOwnProperty(userId)) {
+      socket.emit("displayError", 'Disconnected.');
       console.log('The socket sent a message, but is now disconnected.');
       return;
     }
-    if (users[userId].sessionId === null) {
-      fn({ errorMessage: 'Not in a session.' });
-      console.log(`User ${userId} attempted to update a session, but the user was not in one.`);
+    if (userId != leaderId) {
+      socket.emit("displayError", 'You are not the leader.');
+      console.log(`The socket ${userId} tried to seek, but was not the leader (=${leaderId}).`);
+    }
+    // TODO : VALIDATE DATA
+    socket.broadcast.emit('timeUpdate', data); // Broadcast to all followers
+  });
+
+  socket.on('followerTimeReq', () => { // Follower asks for time update
+    if (!users.hasOwnProperty(userId)) {
+      socket.emit("displayError", 'Disconnected.');
+      console.log('A socket sent a message, but is now disconnected.');
       return;
     }
-    if (!validateLastKnownTime(data.lastKnownTime)) {
-      fn({ errorMessage: 'Invalid lastKnownTime.' });
-      console.log(`User ${userId} attempted to update session ${users[userId].sessionId} with invalid lastKnownTime ${JSON.stringify(data.lastKnownTime)}.`);
+    if (!leaderId) {
+      socket.emit("displayError", 'There is no leader.');
+      console.log(`The socket ${userId} attempted to request a time when there was no leader.`);
       return;
     }
-    if (!validateBoolean(data.isPlaying)) {
-      fn({ errorMessage: 'Invalid isPlaying.' });
-      console.log(`User ${userId} attempted to update session ${users[userId].sessionId} with invalid state ${JSON.stringify(data.state)}.`);
+    if (userId == leaderId) {
+      socket.emit("displayError", 'You cannot request a time update as the leader.');
+      console.log(`Leader ${userId} attempted to request a time update as the leader.`);
       return;
     }
-    if (sessions[users[userId].sessionId].ownerId !== null && sessions[users[userId].sessionId].ownerId !== userId) {
-      fn({ errorMessage: 'Session locked.' });
-      console.log(`User ${userId} attempted to update session ${users[userId].sessionId} but the session is locked by ${sessions[users[userId].sessionId].ownerId}.`);
-      return;
-    }
-    console.log(`User ${userId} updated session ${users[userId].sessionId} with time ${JSON.stringify(data.lastKnownTime)} and state ${data.state} for epoch ${JSON.stringify(data.lastKnownTimeUpdatedAt)}.`);
-    
-    // Update server values and broadcast to other sockets
-    sessions[users[userId].sessionId] = {...sessions[users[userId].sessionId], ...data};
-    socket.to(users[userId].sessionId).broadcast('followerUpdate', data);
-    
+    users[leaderId].socket.emit('leaderTimeReq', (data) => { // Leader sends through callback
+      // TODO : VALIDATE DATA
+      socket.emit('timeUpdate', data); // Send time back to follower
+    });
   });
 
   socket.on('disconnect', function() {
     if (!users.hasOwnProperty(userId)) {
-      console.log('The socket sent a message, but is now disconnected.');
+      console.log('A socket sent a message, but is now disconnected.');
       return;
     }
-    if (users[userId].sessionId !== null) leaveSession();
+    if (userId == leaderId) leaderId = null;
     delete users[userId];
     console.log(`User ${userId} disconnected.`);
   });
-
-
-  function leaveSession(){
-    const sessionId = users[userId].sessionId;
-    const index = sessions[sessionId].userIds.indexOf(userId);
-    if (index > -1) array.splice(index, 1);
-    users[userId].sessionId = null;
-    socket.leave(sessionId); // Leave socket io room
-    if (sessions[sessionId].userIds.length === 0) {
-      delete sessions[sessionId];
-      console.log(`Session ${sessionId} was deleted because there were no more users in it.`);
-    }
-  }
 });
 
 
