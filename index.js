@@ -107,18 +107,18 @@ io.on('connection', function(socket) {
     }
   });
 
-  socket.on('stateUpdate', function(leaderIsPaused){
+  socket.on('stateUpdate', (data) => {
     if (!users.hasOwnProperty(userId)) {
       socket.emit("displayError", 'Disconnected.');
       console.log('A socket sent a message, but is now disconnected.');
       return;
     }
-    if (!validateBoolean(leaderIsPaused)) {
+    if (!validateBoolean(data.leaderIsPaused)) {
       socket.emit("displayError", 'Invalid leaderIsPaused.');
-      console.log(`User ${userId} attempted to update with invalid state ${JSON.stringify(leaderIsPaused)}.`);
+      console.log(`User ${userId} attempted to update with invalid state ${JSON.stringify(data.leaderIsPaused)}.`);
       return;
     }
-    socket.broadcast.emit('stateUpdate', leaderIsPaused);
+    socket.broadcast.emit('stateUpdate', data);
   });
 
   socket.on('leaderSeeked', (data) => { // Leader skips to a time
