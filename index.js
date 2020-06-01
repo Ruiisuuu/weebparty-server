@@ -77,33 +77,28 @@ io.on('connection', function(socket) {
   socket.emit('userId', userId);
   console.log(`User ${userId} connected.`);
 
-  socket.on('becomeLeader', function() {
+  socket.on('changeLeader', (callback) => {
     if (!users.hasOwnProperty(userId)) {
       socket.emit("displayError", 'Disconnected.');
       console.log('A socket sent a message, but is now disconnected.');
       return;
     }
-    if (leaderId) {
+    const isLeader = (leaderId == userId);
+
+    if(leaderId != null && !isLeader){ // Can't kick someone out of leader role
       socket.emit("displayError", 'There is already a leader.');
       console.log(`User ${userId} attempted to become the leader when the leader is already ${leaderId}.`);
       return;
     }
-    leaderId = userId;
-    console.log(`User ${userId} became the leader.`);
-  });
-
-  socket.on('stopLeading', function() {
-    if (!users.hasOwnProperty(userId)) {
-      socket.emit("displayError", 'Disconnected.');
-      console.log('A socket sent a message, but is now disconnected.');
-      return;
-    }
-    if (userId != leaderId) {
-      socket.emit("displayError", 'You are not the leader.');
-      console.log(`The socket ${userId} tried to stop leader, but was not the leader (=${leaderId}).`);
-    } else{
+    else if (isLeader){ // Leader becomes follower
       leaderId = null;
       console.log(`The socket ${userId} stopped being the leader.`);
+      callback(false);
+    }
+    else{ // Follower becomes leader
+      leaderId = userId;
+      console.log(`User ${userId} became the leader.`);
+      callback(true);
     }
   });
 
@@ -118,6 +113,11 @@ io.on('connection', function(socket) {
       console.log(`User ${userId} attempted to update with invalid state ${JSON.stringify(data.leaderIsPaused)}.`);
       return;
     }
+    if (userId != leaderId) {
+      socket.emit("displayError", 'You are not the leader.');
+      console.log(`The socket ${userId} tried to change state, but was not the leader (=${leaderId}).`);
+      return;
+    }
     socket.broadcast.emit('stateUpdate', data);
   });
 
@@ -130,6 +130,7 @@ io.on('connection', function(socket) {
     if (userId != leaderId) {
       socket.emit("displayError", 'You are not the leader.');
       console.log(`The socket ${userId} tried to seek, but was not the leader (=${leaderId}).`);
+      return;
     }
     // TODO : VALIDATE DATA
     socket.broadcast.emit('timeUpdate', data); // Broadcast to all followers
